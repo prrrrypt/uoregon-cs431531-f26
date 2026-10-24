@@ -15,18 +15,4 @@ export OMP_PLACES="cores"
 export OMP_PROC_BIND='spread'
 export OMP_DISPLAY_ENV='true'
 
-for steps in 1000000 10000000
-do
-    for threads in 1 2 4 8
-    do
-        export OMP_NUM_THREADS=$threads
-
-        echo "Steps: $steps, Threads: $threads"
-
-        for run in $(seq 1 20)
-        do
-            echo "Run: $run"
-            ./pi $steps
-        done
-    done
-done
+./pi 100000000
