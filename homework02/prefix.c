@@ -116,13 +116,98 @@ void prefix_sum(int* src, int* prefix, int n)
 
 void prefix_sum_p1(int* src, int* prefix, int n)
 {
+    if (n <= 0) return;
 
+    int* current = malloc(n * sizeof(int));
+    int* next = malloc(n * sizeof(int));
+
+    if (current == NULL || next == NULL) {
+        fprintf(stderr, "Memory allocation failed\n");
+        free(current);
+        free(next);
+        exit(EXIT_FAILURE);
+    }
+
+    memcpy(current, src, n * sizeof(int));
+
+    for (int stride = 1; stride < n; stride *= 2) { // stride doubles every round
+
+        #pragma omp parallel for
+        for (int i = 0; i < n; i++) { 
+
+            if (i >= stride) { // check for neighbor
+                next[i] = current[i] + current[i - stride];
+            } else {
+                next[i] = current[i];
+            }
+        }
+
+        int* temp = current;
+        current = next;
+        next = temp;
+    }
+
+    memcpy(prefix, current, n * sizeof(int));
+
+    free(current);
+    free(next);
 }
 
 void prefix_sum_p2(int* src, int* prefix, int n)
 {
+    if (n <= 0) return;
+    // Find 2^n
+    int m = 1;
+    while (m < n) {
+        m *= 2;
+    }
 
+    int* temp = calloc(m, sizeof(int));
+
+    if (temp == NULL) {
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    memcpy(temp, src, n * sizeof(int));
+
+    // Up-sweep
+    for (int stride = 1; stride < m; stride *= 2) {
+
+        #pragma omp parallel for
+        for (int i = 0; i < m; i += 2 * stride) {
+            temp[i + 2 * stride - 1] += temp[i + stride - 1];
+        // Add the left group's sum to the right group's sum
+	}
+    }
+
+    // Set root to zero to begin exclusive scan
+    temp[m - 1] = 0;
+
+    // Down-sweep
+    for (int stride = m / 2; stride >= 1; stride /= 2) {
+
+        #pragma omp parallel for
+        for (int i = 0; i < m; i += 2 * stride) {
+            // Find the endpoints of the left and right groups
+            int left = i + stride - 1;
+            int right = i + 2 * stride - 1;
+
+            int t = temp[left];
+            // Left group receives the prefix before the current group
+            temp[left] = temp[right];
+            // Right group receives the prefix plus the left group's sum
+            temp[right] += t;
+        }     
+    }
+
+    // Convert exclusive scan to inclusive scan
+    #pragma omp parallel for
+    for (int i = 0; i < n; i++) {
+        prefix[i] = temp[i] + src[i];
+    }
+
+    free(temp);
 }
-
 
 
