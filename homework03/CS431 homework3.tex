@@ -1,0 +1,76 @@
+\documentclass[sigconf,nonacm]{acmart}
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\title{OpenMP Sparse Matrix–Vector Multiplication: COO vs. CSR}
+\author{Pria Wisetmongkolchai}
+
+\usepackage{float}
+\begin{document}
+\begin{abstract}
+This report compares serial and OpenMP-parallel sparse matrix--vector multiplication (SpMV) using coordinate (COO) and compressed sparse row (CSR) storage. It also evaluates parallel COO-to-CSR conversion. On the supplied \texttt{cant} matrix, the four-thread CSR kernel achieved 3.92$\times$ speedup against serial CSR, whereas the four-thread lock-based COO kernel achieved only 0.45$\times$ speedup against serial COO. This contrast illustrates the performance cost of synchronized output updates in COO and the advantage of independent row computations in CSR.
+\end{abstract}
+\maketitle
+\section{Implementation}
+\subsection{COO and CSR}
+COO stores a row index, column index, and value for each nonzero entry. The kernel processes entries $k$ and accumulates
+\begin{equation}
+ y[\mathrm{row}[k]] \mathrel{+}= \mathrm{val}[k] \, x[\mathrm{col}[k]].
+\end{equation}
+The serial version updates the output directly. The OpenMP version distributes entries with \texttt{parallel for} and uses the provided per-row OpenMP locks to protect concurrent updates to the same output element. The output is reset at the start of each multiplication.
+
+CSR stores values and column indices together with an array \texttt{row\_ptr} of length $m+1$. The offset for row $i$ is given by $\mathrm{row\_ptr}[i]$; the next offset marks its end. The CSR kernels compute a local sum for each row. The parallel CSR kernel uses an OpenMP static-schedule row loop. Because each iteration writes to a distinct output position, no output locks are required.
+
+\subsection{Parallel COO-to-CSR conversion}
+The conversion first counts nonzero entries in each row using an OpenMP loop with parallel histogram. A chunked parallel exclusive prefix sum then computes the CSR row offsets, threads calculate local totals, a short serial scan forms offsets for the thread chunks, and threads calculate their chunk-local prefix values concurrently. Finally, a parallel scatter reserves insertion positions through atomic capture and stores the COO columns and values in the corresponding CSR rows. The input's 1-based Matrix Market indices were converted to 0-based indices before computation.
+
+\section{Results}
+\begin{table}[H]
+\caption{Observed SpMV execution times for 100 calls (seconds). Lower is better.}
+\label{tab:times}
+\centering
+\small
+\begin{tabular}{@{}r r r r r@{}}
+\toprule
+Threads & COO par. & CSR par. & COO serial & CSR serial \\
+\midrule
+1 & 7.166312 & 1.257175 & 1.934392 & 1.255584 \\
+2 & 6.000943 & 0.632418 & 1.933904 & 1.257304 \\
+4 & 4.340342 & 0.320720 & 1.934794 & 1.256523 \\
+8 & 2.298680 & 0.340242 & 1.934699 & 1.257614 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\caption{Observed COO-to-CSR conversion time and SpMV speedup. Speedup uses the serial time measured in the same run: $S_p=T_{\rm serial}/T_{\rm parallel}$.}
+\label{tab:speedups}
+\centering
+\small
+\begin{tabular}{@{}r r r r@{}}
+\toprule
+Threads & Conversion (s) & COO speedup & CSR speedup \\
+\midrule
+1 & 0.096287 & 0.27$\times$ & 1.00$\times$ \\
+2 & 0.050125 & 0.32$\times$ & 1.99$\times$ \\
+4 & 0.026814 & 0.45$\times$ & 3.92$\times$ \\
+8 & 0.032643 & 0.84$\times$ & 3.70$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The saved parallel CSR output was compared with \texttt{cant/ans.mtx} and passed a $10^{-6}$ absolute-error check. An additional comparison among parallel COO, parallel CSR, serial COO, and serial CSR at four threads found a maximum absolute difference of $7.27595761418\times10^{-12}$.
+
+\section{Discussion}
+\subsection{Parallel versus serial COO}
+The parallel COO implementation was slower than serial COO at every measured thread count. At four threads, COO took 4.340342 seconds in parallel versus 1.934794 seconds in serial, producing a speedup of 0.45$\times$. With a single OpenMP thread, the lock-based COO kernel was slower than the serial version. Lock acquisition and release for every nonzero, along with possible contention when multiple entries target the same row, create substantial overhead. The parallel COO time decreased as the thread count rose from one to eight, but did not surpass the serial implementation.
+
+\subsection{Parallel versus serial CSR}
+CSR benefited strongly from row-level parallelism. At four threads, it required 0.320720 seconds versus 1.256523 seconds with serial, yielding 3.92$\times$ speedup. Each row can be computed independently without locks, reducing synchronization. With eight threads the observed CSR time increased to 0.340242 seconds, but this single-run result does not establish a hardware scaling limit, especially because the eight-CPU allocation was not verified.
+
+
+\section{Conclusion}
+On the supplied \texttt{cant} matrix, CSR was substantially faster than COO for both serial and parallel implementations. The four-thread CSR implementation reached 3.92$\times$ speedup while parallel COO implementation remained slower than serial COO. These results highlight the role of sparse data layout and synchronization overhead in CPU parallel computing.
+
+\end{document}
