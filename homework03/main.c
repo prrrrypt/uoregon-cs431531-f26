@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <omp.h>
+#include <math.h>
 #include "main.h"
 
 #define MAX_FILENAME 256
@@ -162,6 +163,7 @@ int main(int argc, char** argv)
 
 
     // Store the calculated vector in a file, one element per line.
+    
     char resName[MAX_FILENAME];
     strcpy(resName, argv[3]); 
     fprintf(stdout, "Result file name: %s ... ", resName);
@@ -348,12 +350,120 @@ void read_info(char* fileName, int* is_sym)
    return paramters:
        none
  */
+
+static void parallel_prefix_sum(
+    const unsigned int* counts,
+    unsigned int* row_ptr,
+    int m)
+{
+    int p = omp_get_max_threads();
+
+    unsigned int* totals = calloc(p, sizeof(unsigned int));
+    unsigned int* offsets = calloc(p, sizeof(unsigned int));
+
+    assert(totals && offsets);
+
+    // Each thread calculates its chunk total
+    #pragma omp parallel num_threads(p)
+    {
+        int tid = omp_get_thread_num();
+        int start = (int)((long long)tid * m / p);
+        int end = (int)((long long)(tid + 1) * m / p);
+
+        unsigned int sum = 0;
+
+        for (int i = start; i < end; i++) {
+            sum += counts[i];
+        }
+
+        totals[tid] = sum;
+    }
+
+    // Prefix sum of chunk totals
+    unsigned int running = 0;
+
+    for (int t = 0; t < p; t++) {
+        offsets[t] = running;
+        running += totals[t];
+    }
+
+    // Parallel prefix computation within each chunk
+    #pragma omp parallel num_threads(p)
+    {
+        int tid = omp_get_thread_num();
+        int start = (int)((long long)tid * m / p);
+        int end = (int)((long long)(tid + 1) * m / p);
+
+        unsigned int sum = offsets[tid];
+
+        for (int i = start; i < end; i++) {
+            row_ptr[i] = sum;
+            sum += counts[i];
+        }
+    }
+
+    row_ptr[m] = running;
+
+    free(totals);
+    free(offsets);
+}
+
 void convert_coo_to_csr(int* row_ind, int* col_ind, double* val, 
                         int m, int n, int nnz,
                         unsigned int** csr_row_ptr, unsigned int** csr_col_ind,
                         double** csr_vals)
 
 {
+    // Allocate output arrays
+    *csr_row_ptr = malloc((m + 1) * sizeof(unsigned int));
+    *csr_col_ind = malloc((nnz ? nnz : 1) * sizeof(unsigned int));
+    *csr_vals = malloc((nnz ? nnz : 1) * sizeof(double));
+
+    assert(*csr_row_ptr && *csr_col_ind && *csr_vals);
+
+    // Allocate row histogram
+    unsigned int* counts = calloc((m ? m : 1), sizeof(unsigned int));
+    assert(counts);
+
+    // Parallel histogram
+    #pragma omp parallel for
+    for (int i = 0; i < nnz; i++) {
+        int row = row_ind[i];
+
+        #pragma omp atomic
+        counts[row]++;
+    }
+
+    // Parallel prefix sum
+    parallel_prefix_sum(counts, *csr_row_ptr, m);
+
+    // Prepare row insertion positions
+    unsigned int* next = malloc((m ? m : 1) * sizeof(unsigned int));
+    assert(next);
+
+    #pragma omp parallel for
+    for (int i = 0; i < m; i++) {
+        next[i] = (*csr_row_ptr)[i];
+    }
+
+    // Scatter COO entries into CSR
+    #pragma omp parallel for
+    for (int i = 0; i < nnz; i++) {
+        int row = row_ind[i];
+        unsigned int pos;
+
+        #pragma omp atomic capture
+        {
+            pos = next[row];
+            next[row]++;
+        }
+
+        (*csr_col_ind)[pos] = (unsigned int)col_ind[i];
+        (*csr_vals)[pos] = val[i];
+    }
+
+    free(counts);
+    free(next);
 }
 
 /* Reads in a vector from file.
@@ -396,7 +506,7 @@ void read_vector(char* fileName, double** vector, int* vecSize)
 
 /* SpMV function for COO stored sparse matrix
  */
-void spmv_coo(int* row_ind, unsigned int* col_ind, double* vals, 
+void spmv_coo(int* row_ind, int* col_ind, double* vals, 
               int m, int n, int nnz, double* vector_x, double *res, 
               omp_lock_t* writelock)
 {
@@ -445,7 +555,7 @@ void spmv(unsigned int* csr_row_ptr, unsigned int* csr_col_ind,
 
 /* SpMV function for COO stored sparse matrix
  */
-void spmv_coo_ser(int* row_ind, unsigned int* col_ind, double* vals, 
+void spmv_coo_ser(int* row_ind, int* col_ind, double* vals, 
                   int m, int n, int nnz, double* vector_x, double *res)
 // [res[row_i] += =val_i * x[col_i]]
 {
