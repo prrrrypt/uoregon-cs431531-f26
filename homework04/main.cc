@@ -600,7 +600,43 @@ void convert_csr_to_ell(unsigned int* csr_row_ptr, unsigned int* csr_col_ind,
                         unsigned int** ell_col_ind, double** ell_vals, 
                         int* n_new)
 {
-    // COMPLETE THIS FUNCTION
+    // Find maximum number of nonzeros in any row
+    int max_nnz = 0;
+
+    #pragma omp parallel for reduction(max:max_nnz)
+    for (int i = 0; i < m; i++) {
+        int count = csr_row_ptr[i + 1] - csr_row_ptr[i];
+
+        if (count > max_nnz) {
+            max_nnz = count;
+        }
+    }
+
+    *n_new = max_nnz;
+
+    // Total ELL storage includes padding
+    size_t total = (size_t)m * max_nnz;
+
+    *ell_col_ind = (unsigned int*)
+        calloc(total ? total : 1, sizeof(unsigned int));
+
+    *ell_vals = (double*)
+        calloc(total ? total : 1, sizeof(double));
+
+    assert(*ell_col_ind && *ell_vals);
+
+    // Copy CSR entries into column-major ELL layout
+    #pragma omp parallel for
+    for (int row = 0; row < m; row++) {
+        unsigned int start = csr_row_ptr[row];
+        unsigned int end = csr_row_ptr[row + 1];
+
+        for (unsigned int j = start; j < end; j++) {
+            unsigned int slot = j - start;
+            size_t index = (size_t)slot * m + row;
+
+            (*ell_col_ind)[index] = csr_col_ind[j];
+            (*ell_vals)[index] = csr_vals[j];
+        }
+    }
 }
-
-
