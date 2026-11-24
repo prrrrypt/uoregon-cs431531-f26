@@ -617,11 +617,9 @@ void convert_csr_to_ell(unsigned int* csr_row_ptr, unsigned int* csr_col_ind,
     // Total ELL storage includes padding
     size_t total = (size_t)m * max_nnz;
 
-    *ell_col_ind = (unsigned int*)
-        calloc(total ? total : 1, sizeof(unsigned int));
+    *ell_col_ind = (unsigned int*)calloc(total ? total : 1, sizeof(unsigned int));
 
-    *ell_vals = (double*)
-        calloc(total ? total : 1, sizeof(double));
+    *ell_vals = (double*)calloc(total ? total : 1, sizeof(double));
 
     assert(*ell_col_ind && *ell_vals);
 

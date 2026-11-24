@@ -21,7 +21,7 @@ spmv_kernel_ell(unsigned int* col_ind, T* vals, int m, int n, int nnz,
 
     double sum = 0.0;
 
-    // n is the padded ELL width (n_new).
+    // n is the padded ELL width (n_new)
     for (int slot = tid; slot < n; slot += blockDim.x) {
         size_t index = (size_t)slot * m + row;
         sum += vals[index] * x[col_ind[index]];
@@ -30,7 +30,7 @@ spmv_kernel_ell(unsigned int* col_ind, T* vals, int m, int n, int nnz,
     partial[tid] = sum;
     __syncthreads();
 
-    // Reduce all partial sums within this block.
+    // Reduce all partial sums within this block
     for (unsigned int stride = blockDim.x / 2;
          stride > 0;
          stride >>= 1)
@@ -84,18 +84,16 @@ void allocate_ell_gpu(unsigned int* col_ind, double* vals, int m, int n,
                       int nnz, double* x, unsigned int** dev_col_ind, 
                       double** dev_vals, double** dev_x, double** dev_b)
 {
-    // n is the padded ELL width.
+    // n is the padded ELL width
     size_t total = (size_t)m * n;
 
     CopyData(col_ind, total, sizeof(unsigned int), dev_col_ind);
     CopyData(vals, total, sizeof(double), dev_vals);
 
-    // The supplied cant matrix is square, so x has m entries.
+    // The supplied cant matrix is square, so x has m entries
     CopyData(x, m, sizeof(double), dev_x);
 
-    checkCudaErrors(
-        cudaMalloc((void**)dev_b, m * sizeof(double))
-    );
+    checkCudaErrors(cudaMalloc((void**)dev_b, m * sizeof(double)));
 }
 
 void allocate_csr_gpu(unsigned int* row_ptr, unsigned int* col_ind, 
@@ -108,9 +106,7 @@ void allocate_csr_gpu(unsigned int* row_ptr, unsigned int* col_ind,
     CopyData(vals, nnz, sizeof(double), dev_vals);
     CopyData(x, n, sizeof(double), dev_x);
 
-    checkCudaErrors(
-        cudaMalloc((void**)dev_b, m * sizeof(double))
-    );
+    checkCudaErrors(cudaMalloc((void**)dev_b, m * sizeof(double)));
 }
 
 void get_result_gpu(double* dev_b, double* b, int m)
