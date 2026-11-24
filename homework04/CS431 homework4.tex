@@ -1,0 +1,49 @@
+\documentclass[sigconf,nonacm]{acmart}
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+\setlength{\textfloatsep}{6pt}
+\setlength{\floatsep}{5pt}
+\setlength{\intextsep}{5pt}
+\title{CUDA Sparse Matrix--Vector Multiplication: CSR vs. ELL}
+\author{Pria Wisetmongkolchai}
+\begin{document}
+\begin{abstract}
+This report evaluates CUDA sparse matrix--vector multiplication (SpMV) using compressed sparse row (CSR) and ELLPACK (ELL) formats. Both kernels use one GPU thread block per matrix row and shared-memory reduction. On the supplied \texttt{cant} matrix, CSR was faster at every tested block size. The best observed CSR time was 0.10611\,ms per multiplication with 64 threads per block. The best ELL time was 0.47728\,ms with 32 threads.
+\end{abstract}
+\maketitle
+\section{Implementation}
+The \texttt{cant} matrix contains 62,451 rows and columns and 4,007,383 entries after symmetric expansion. The provided CPU code constructs CSR from COO. The CPU \texttt{convert\_csr\_to\_ell} implementation determines the maximum row length, allocates padded ELL arrays, and stores elements using column-major offsets $\mathrm{slot}\cdot m+\mathrm{row}$. Unused positions contain zero values.
+
+The CSR CUDA kernel assigns a block to each row; threads process strided portions of that row's nonzeros and reduce their partial sums in shared memory. The ELL kernel uses the same block-level reduction but iterates through the padded row width.
+
+\section{Results}
+The provided Makefile compiled with CUDA 11.2 targeting \texttt{sm\_80}, and the program was executed through a Talapas GPU batch job. Each kernel's CUDA-event timing was averaged over 100 iterations. Table~\ref{tab:results} reports the observed per-iteration times from individual runs; lower is better.
+
+\begin{table}[t]
+\caption{GPU SpMV time per iteration on \texttt{cant} (milliseconds).}
+\label{tab:results}
+\centering
+\small
+\begin{tabular}{@{}r r r r@{}}
+\toprule
+Threads/block & CSR & ELL & ELL/CSR \\
+\midrule
+32  & 0.11710 & \textbf{0.47728} & 4.08$\times$ \\
+64  & \textbf{0.10611} & 0.48786 & 4.60$\times$ \\
+128 & 0.15317 & 0.48209 & 3.15$\times$ \\
+256 & 0.26604 & 0.49150 & 1.85$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For correctness, the ELL GPU output was compared against the provided reference answer: the maximum absolute error was $1.00044\times10^{-10}$, below the $10^{-6}$ check threshold. The starter code also reported a CPU-CSR-versus-GPU-ELL 2-norm near $1.8\times10^{-10}$. The GPU CSR output was not separately checked by the starter code's norm calculation.
+
+\section{Discussion}
+CSR outperformed ELL for all four tested block sizes. CSR stores only actual nonzeros and traverses each row using row pointers. ELL kernel traverses the same padded width for every row, which can waste memory traffic and arithmetic when row lengths vary. ELL's regular layout can benefit GPU memory access, but did not offset padding costs on this input. The data do not isolate padding from other causes of the difference.
+
+For CSR, 64 threads per block performed best in the observed runs. Increasing to 256 threads raised the time to 0.26604\,ms, plausibly because more threads participate in reductions and some rows provide too little work per block. ELL times varied less, from 0.47728 to 0.49150\,ms. These are single-run measurements, so small differences should not be treated as definitive performance rankings.
+
+\section{Conclusion}
+On \texttt{cant}, the CSR CUDA implementation was consistently faster than ELL. The best observed CSR configuration used 64 threads per block, while ELL was fastest at 32 threads. The results illustrate how sparse format, padding, and block-level work distribution affect GPU SpMV performance.
+\end{document}
